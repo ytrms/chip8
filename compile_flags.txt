@@ -1,0 +1,3 @@
+-I/opt/homebrew/opt/raylib/include
+-I/opt/homebrew/include
+-std=c11
