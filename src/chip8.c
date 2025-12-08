@@ -35,6 +35,10 @@ ADDRESS I = 0;
 // Initializing registers
 BYTE registers[16];
 
+// Creating the "pixel" arrays
+bool pixels[SCREEN_HEIGHT][SCREEN_WIDTH];
+
+
 int push_to_stack(ADDRESS address) {
   if (stack_pointer >= STACK_DEPTH) {
     perror("Stack overflow.");
@@ -148,12 +152,50 @@ uint16_t fetchInstruction(void) {
   return instruction;
 }
 
+void clearBackground(void) {
+  for (int i = 0; i < SCREEN_HEIGHT; i++)
+  {
+    for (int n = 0; n < SCREEN_WIDTH; n++)
+    {
+      pixels[i][n] = false;
+    }
+  }
+}
+
+void drawScreen(void) {
+  // Draws rectangles on screen based on the "pixels" matrix
+  for (int i = 0; i < SCREEN_HEIGHT; i++)
+  {
+    for (int n = 0; n < SCREEN_WIDTH; n++)
+    {
+      if (pixels[i][n]) {
+        DrawRectangle(
+          n * SCREEN_MULTIPLIER, 
+          i * SCREEN_MULTIPLIER,
+          SCREEN_MULTIPLIER - 1,
+          SCREEN_MULTIPLIER -1,
+          RAYWHITE
+        );
+      }
+      else {
+        DrawRectangle(
+          n * SCREEN_MULTIPLIER,
+          i * SCREEN_MULTIPLIER,
+          SCREEN_MULTIPLIER - 1,
+          SCREEN_MULTIPLIER - 1,
+          BLACK
+        );
+      }
+    }
+  }
+}
+
 void decodeAndExecuteInstruction(uint16_t instruction) {
   switch (instruction&0x1000)
   {
   case 0x0000:
     // Assuming 00E0 (for now), clear screen
-    ClearBackground(BLACK);
+    clearBackground();
     break;
 
   case 0x1000:
@@ -174,6 +216,11 @@ void decodeAndExecuteInstruction(uint16_t instruction) {
   case 0xA000:
     // ANNN: Set I to NNN
     I = instruction & 0x0111;
+    break;
+
+  case 0xD000:
+    // DXYN: Draw sprite of N height from memory location at address I at X, Y
+    // TODO: Implement
     break;
 
   default:
@@ -204,7 +251,7 @@ int main(int argc, char *argv[]) {
   float cpuAcc = 0;
   float currentFrameTime = 0;
 
-  ClearBackground(BLACK); // Putting outside of the loop because CHIP-8 has its own cls
+  pixels[3][3] = true;
 
   while (!WindowShouldClose()) {
     BeginDrawing();
@@ -233,6 +280,8 @@ int main(int argc, char *argv[]) {
     snprintf(strTimeElapsed, 16, "%f", timeElapsed);
     DrawText(strTimeElapsed, 0, 0, 16, RAYWHITE);
     */
+    ClearBackground(BLACK);
+    drawScreen();
 
     EndDrawing();
   }
