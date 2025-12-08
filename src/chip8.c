@@ -32,6 +32,9 @@ BYTE soundTimer = 0;
 ADDRESS pc = 0x200; // Assuming that the ROM starts at this RAM addre
 ADDRESS I = 0;
 
+// Initializing registers
+BYTE registers[16];
+
 int push_to_stack(ADDRESS address) {
   if (stack_pointer >= STACK_DEPTH) {
     perror("Stack overflow.");
@@ -138,11 +141,55 @@ void paintPixelAtVirtualLocation(int x, int y) {
       RAYWHITE);
 }
 
+uint16_t fetchInstruction(void) {
+  uint16_t instruction = ram[pc];
+  // SIDE EFFECT: We also increase the PC by 2 to point it at the next instruction.
+  pc += 0x2;
+  return instruction;
+}
+
+void decodeAndExecuteInstruction(uint16_t instruction) {
+  switch (instruction&0x1000)
+  {
+  case 0x0000:
+    // Assuming 00E0 (for now), clear screen
+    ClearBackground(BLACK);
+    break;
+
+  case 0x1000:
+    // JMP (set pc to nnn)
+    pc = instruction & 0x0111;
+    break;
+  
+  case 0x6000:
+    // Assuming 6XNN: Set register VX to NN
+    registers[instruction & 0x0100] = instruction & 0x0011;
+    break;
+
+  case 0x7000:
+    // 7XNN: Add NN to VX
+    registers[instruction & 0x0100] += instruction & 0x0011;
+    break;
+
+  case 0xA000:
+    // ANNN: Set I to NNN
+    I = instruction & 0x0111;
+    break;
+
+  default:
+    break;
+  }
+}
+
 int processInstruction(void) {
   /*
   TODO: Implement processing instructions.
   This should fetch, decode, and execute the instruction.
   */
+  uint16_t instruction = 0;
+  instruction = fetchInstruction();
+  decodeAndExecuteInstruction(instruction);
+
   return 1;
 }
 
@@ -157,11 +204,12 @@ int main(int argc, char *argv[]) {
   float cpuAcc = 0;
   float currentFrameTime = 0;
 
+  ClearBackground(BLACK); // Putting outside of the loop because CHIP-8 has its own cls
+
   while (!WindowShouldClose()) {
     BeginDrawing();
     currentFrameTime = GetFrameTime();
     // DrawText(argv[1], 0, 0, 12, RAYWHITE);
-    ClearBackground(BLACK);
 
     // Decrease timers once every 16ms
     timerAcc += currentFrameTime;
@@ -178,8 +226,6 @@ int main(int argc, char *argv[]) {
       cpuAcc -= (1.0f / CPU_HZ);
       processInstruction();
     }
-
-    paintPixelAtVirtualLocation(3, 3);
 
     /*
     // Convert timeElapsed to string
