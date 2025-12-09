@@ -33,7 +33,7 @@ ADDRESS pc = 0x200; // Assuming that the ROM starts at this RAM addre
 ADDRESS I = 0;
 
 // Initializing registers
-BYTE registers[16];
+BYTE registers[16]; // 0-F
 
 // Creating the "pixel" arrays
 bool pixels[SCREEN_HEIGHT][SCREEN_WIDTH];
@@ -191,46 +191,90 @@ void drawScreen(void) {
 }
 
 void decodeAndExecuteInstruction(uint16_t instruction) {
-  switch (instruction&0x1000)
-  {
-  case 0x0000:
-    // Assuming 00E0 (for now), clear screen
-    clearBackground();
-    break;
+  switch (instruction&0x1000) {
+    case 0x0000: {
+      // Assuming 00E0 (for now), clear screen
+      clearBackground();
+      break;
+    }
 
-  case 0x1000:
-    // JMP (set pc to nnn)
-    pc = instruction & 0x0111;
-    break;
+    case 0x1000: {
+      // JMP (set pc to nnn)
+      pc = instruction & 0x0FFF;
+      break;
+    }
   
-  case 0x6000:
-    // Assuming 6XNN: Set register VX to NN
-    registers[instruction & 0x0100] = instruction & 0x0011;
-    break;
+    case 0x6000: {
+      // Assuming 6XNN: Set register VX to NN
+      registers[(instruction & 0x0F00) >> 8] = instruction & 0x00FF;
+      break;
+    }
 
-  case 0x7000:
-    // 7XNN: Add NN to VX
-    registers[instruction & 0x0100] += instruction & 0x0011;
-    break;
+    case 0x7000: {
+      // 7XNN: Add NN to VX
+      registers[(instruction & 0x0F00) >> 8] += instruction & 0x00FF;
+      break;
+    }
 
-  case 0xA000:
-    // ANNN: Set I to NNN
-    I = instruction & 0x0111;
-    break;
+    case 0xA000: {
+      // ANNN: Set I to NNN
+      I = instruction & 0x0FFF;
+      break;
+    }
 
-  case 0xD000:
-    // DXYN: Draw sprite of N height from memory location at address I at X, Y
-    // TODO: Implement
-    break;
+    case 0xD000: {
+      // DXYN: Draw sprite of N height from memory location at address I at X, Y
 
-  default:
-    break;
+      // Get X and Y coords (if they overflow, they should wrap)
+      int x = registers[(instruction & 0x0F00) >> 8] % SCREEN_WIDTH;
+      int y = registers[(instruction & 0x00F0) >> 4] % SCREEN_HEIGHT;
+
+      int spriteHeight = instruction & 0x000F;
+
+      // For each sprite row
+      for (int n = 0; n < spriteHeight; n++)
+      {
+        uint8_t spriteRow = ram[I + n];
+        // That's something like 11110000
+
+        for (int p = 0; p < 8; p++)
+        {
+          // For each bit in the row, we get a single "pixel" (l to r)
+
+          // Sliding mask to get one bit ("pixel") at a time
+          uint8_t mask = 0b10000000 >> p;
+          /*
+          p: 0
+          spriteRow: 11110000
+          mask:      10000000
+
+          pixelToDraw: 10000000 >> (7-p) --> 00000001
+          */
+          bool pixelToDraw = (spriteRow & mask) >> (7 - p);
+          if (pixelToDraw) {
+            /*
+            This pixel needs to be drawn on screen.
+            We flip the pixel on screen. And we set VF to 1 (collision)
+            TODO: Clip sprites that go off screen. (right now they would probably segfault)
+            */
+            pixels[x + n][y + p] = !pixels[x + n][y + p];
+            registers[0xF] = 1;
+          }
+        }
+      }
+
+      break;
+    }
+
+    default: {
+      break;
+    }
   }
 }
 
 int processInstruction(void) {
   /*
-  TODO: Implement processing instructions.
+  TODO: Implement processing all instructions.
   This should fetch, decode, and execute the instruction.
   */
   uint16_t instruction = 0;
@@ -271,7 +315,7 @@ int main(int argc, char *argv[]) {
 
     while (cpuAcc >= (1.0f / CPU_HZ)) {
       cpuAcc -= (1.0f / CPU_HZ);
-      processInstruction();
+      // processInstruction();
     }
 
     /*
