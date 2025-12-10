@@ -285,6 +285,12 @@ int processInstruction(void) {
 }
 
 int main(int argc, char *argv[]) {
+
+  if (argc < 2) {
+    printf("Usage: chip8 <rom_file>\n");
+    return EXIT_FAILURE;
+  }
+
   init_ram();
   InitWindow(SCREEN_WIDTH * SCREEN_MULTIPLIER,
              SCREEN_HEIGHT * SCREEN_MULTIPLIER, "CHIP-8");
