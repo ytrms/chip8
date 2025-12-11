@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #define RAM_SIZE 4096
 #define STACK_DEPTH 16
@@ -11,6 +12,8 @@
 #define SCREEN_WIDTH 64
 #define SCREEN_HEIGHT 32
 #define SCREEN_MULTIPLIER 10
+
+#define ROM_START_ADDRESS 0x200
 
 // Defining a byte as being 8 bit
 typedef uint8_t BYTE;
@@ -22,14 +25,14 @@ BYTE ram[RAM_SIZE];
 // Creating the stack
 ADDRESS stack[STACK_DEPTH];
 // Stack pointer that points at the next free slot in the stack
-uint8_t stack_pointer = 0;
+int8_t stack_pointer = 0;
 
 // Creating timers
-BYTE delayTimer = 0;
-BYTE soundTimer = 0;
+BYTE delay_timer = 0;
+BYTE sound_timer = 0;
 
 // Initialize program counter and index register
-ADDRESS pc = 0x200; // Assuming that the ROM starts at this RAM addre
+ADDRESS pc = ROM_START_ADDRESS; // Assuming that the ROM starts at this RAM addre
 ADDRESS I = 0;
 
 // Initializing registers
@@ -38,59 +41,98 @@ BYTE registers[16]; // 0-F
 // Creating the "pixel" arrays
 bool pixels[SCREEN_HEIGHT][SCREEN_WIDTH];
 
-
-int push_to_stack(ADDRESS address) {
-  if (stack_pointer >= STACK_DEPTH) {
+int push_to_stack(ADDRESS address)
+{
+  if (stack_pointer >= STACK_DEPTH)
+  {
     perror("Stack overflow.");
-    return EXIT_FAILURE;
+    return 1;
   }
 
   stack[stack_pointer] = address;
   stack_pointer += 1;
 
-  return EXIT_SUCCESS;
+  return 0;
 }
 
-ADDRESS pop_from_stack() {
-  if (stack_pointer < 0) {
+ADDRESS pop_from_stack()
+{
+  if (stack_pointer == 0)
+  {
     perror("Stack underflow.");
-    return EXIT_FAILURE;
+    // TODO: It doesn't make sense to return exit_failure here. Find something
+    // else. (e.g., they are both fine and valid addresses, both returns)
+    return 1;
   }
 
-  ADDRESS address = stack[stack_pointer];
   stack_pointer -= 1;
+  ADDRESS address = stack[stack_pointer];
 
   return address;
 }
 
-int dump_ram(void) {
+int load_rom_to_ram(char *filename)
+{
+  FILE *rom = fopen(filename, "rb");
+
+  if (!rom)
+  {
+    perror("ROM not found.");
+    return 1;
+  }
+
+  // int rom_length = GetFileLength(filename);
+
+  int file_byte;
+  int i = 0;
+  // Reading the file one byte at a time into byte
+  while ((file_byte = fgetc(rom)) != EOF)
+  {
+    // TODO: Risky - if the ROM is too large, you'll go oob. do ram size - rom start addr to check
+    ram[pc + i] = file_byte; 
+    i++;
+  }
+
+  fclose(rom);
+  return 0;
+}
+
+int dump_ram(void)
+{
   FILE *ram_dump = fopen("ram_dump.bin", "w");
-  if (!ram_dump) {
+  if (!ram_dump)
+  {
     perror("Failed creating the file ram_dump.bin");
-    return EXIT_FAILURE;
+    return 1;
   }
 
   size_t num_bytes_dumped = fwrite(ram, sizeof ram[0], RAM_SIZE, ram_dump);
   printf("Dumped %zu bytes out of %d requested.", num_bytes_dumped, RAM_SIZE);
   fclose(ram_dump);
 
-  if (num_bytes_dumped == RAM_SIZE) {
-    return EXIT_SUCCESS;
-  } else {
-    return EXIT_FAILURE;
+  if (num_bytes_dumped == RAM_SIZE)
+  {
+    return 0;
+  }
+  else
+  {
+    return 1;
   }
 }
 
-int reset_ram(void) {
+int reset_ram(void)
+{
   // Blank out memory
-  for (int i = 0; i < RAM_SIZE; i++) {
+  for (int i = 0; i < RAM_SIZE; i++)
+  {
     ram[i] = 0;
   }
 
-  return EXIT_SUCCESS;
+  return 0;
 }
 
-void burn_font_to_ram(void) {
+void burn_font_to_ram(void)
+{
   int font_area_start_address = 0x050;
 
   int font[FONT_SIZE] = {
@@ -112,31 +154,35 @@ void burn_font_to_ram(void) {
       0xF0, 0x80, 0xF0, 0x80, 0x80  // F
   };
 
-  for (int i = 0; i < FONT_SIZE; i++) {
+  for (int i = 0; i < FONT_SIZE; i++)
+  {
     ram[font_area_start_address + i] = font[i];
   }
 }
 
-void init_ram(void) {
+void init_ram(void)
+{
   // 0x000 - 0x1FF are reserved by the interpreter. 0x200+ are for the ROM.
   reset_ram();
   burn_font_to_ram();
+  // TODO: Many things to do here to init. Zero the timers, reset PC and I, registers, stack_pointer, pixels. basically make it so that you can run it while the emu is running.
 }
 
-void decreaseTimers(void)
+void decrease_timers(void)
 {
-  if (soundTimer > 0)
+  if (sound_timer > 0)
   {
-    soundTimer--;
+    sound_timer--;
   }
 
-  if (delayTimer > 0)
+  if (delay_timer > 0)
   {
-    delayTimer--;
+    delay_timer--;
   }
 }
 
-void paintPixelAtVirtualLocation(int x, int y) {
+void paint_pixel_at_virtual_location(int x, int y)
+{
   DrawRectangle(
       x * SCREEN_MULTIPLIER,
       y * SCREEN_MULTIPLIER,
@@ -145,14 +191,21 @@ void paintPixelAtVirtualLocation(int x, int y) {
       RAYWHITE);
 }
 
-uint16_t fetchInstruction(void) {
-  uint16_t instruction = ram[pc];
+uint16_t fetch_instruction(void)
+{
+  // Instructions are 16 bit
+  uint16_t instruction_high = ram[pc];
+  uint8_t instruction_low = ram[pc + 1];
+
+  uint16_t instruction = (instruction_high << 8) | instruction_low;
+
   // SIDE EFFECT: We also increase the PC by 2 to point it at the next instruction.
-  pc += 0x2;
+  pc += 0x002;
   return instruction;
 }
 
-void clearBackground(void) {
+void clear_background(void)
+{
   for (int i = 0; i < SCREEN_HEIGHT; i++)
   {
     for (int n = 0; n < SCREEN_WIDTH; n++)
@@ -162,166 +215,195 @@ void clearBackground(void) {
   }
 }
 
-void drawScreen(void) {
+void draw_screen(void)
+{
   // Draws rectangles on screen based on the "pixels" matrix
   for (int i = 0; i < SCREEN_HEIGHT; i++)
   {
     for (int n = 0; n < SCREEN_WIDTH; n++)
     {
-      if (pixels[i][n]) {
+      if (pixels[i][n])
+      {
         DrawRectangle(
-          n * SCREEN_MULTIPLIER, 
-          i * SCREEN_MULTIPLIER,
-          SCREEN_MULTIPLIER - 1,
-          SCREEN_MULTIPLIER -1,
-          RAYWHITE
-        );
+            n * SCREEN_MULTIPLIER,
+            i * SCREEN_MULTIPLIER,
+            SCREEN_MULTIPLIER - 1,
+            SCREEN_MULTIPLIER - 1,
+            RAYWHITE);
       }
-      else {
+      else
+      {
         DrawRectangle(
-          n * SCREEN_MULTIPLIER,
-          i * SCREEN_MULTIPLIER,
-          SCREEN_MULTIPLIER - 1,
-          SCREEN_MULTIPLIER - 1,
-          BLACK
-        );
+            n * SCREEN_MULTIPLIER,
+            i * SCREEN_MULTIPLIER,
+            SCREEN_MULTIPLIER - 1,
+            SCREEN_MULTIPLIER - 1,
+            BLACK);
       }
     }
   }
 }
 
-void decodeAndExecuteInstruction(uint16_t instruction) {
-  switch (instruction&0x1000) {
-    case 0x0000: {
-      // Assuming 00E0 (for now), clear screen
-      clearBackground();
-      break;
-    }
+void decode_execute_instruction(uint16_t instruction)
+{
+  switch (instruction & 0xF000)
+  {
+  case 0x0000:
+  {
+    // Assuming 00E0 (for now), clear screen
+    clear_background();
+    break;
+  }
 
-    case 0x1000: {
-      // JMP (set pc to nnn)
-      pc = instruction & 0x0FFF;
-      break;
-    }
-  
-    case 0x6000: {
-      // Assuming 6XNN: Set register VX to NN
-      registers[(instruction & 0x0F00) >> 8] = instruction & 0x00FF;
-      break;
-    }
+  case 0x1000:
+  {
+    // JMP (set pc to nnn)
+    pc = instruction & 0x0FFF;
+    break;
+  }
 
-    case 0x7000: {
-      // 7XNN: Add NN to VX
-      registers[(instruction & 0x0F00) >> 8] += instruction & 0x00FF;
-      break;
-    }
+  case 0x6000:
+  {
+    // Assuming 6XNN: Set register VX to NN
+    registers[(instruction & 0x0F00) >> 8] = instruction & 0x00FF;
+    break;
+  }
 
-    case 0xA000: {
-      // ANNN: Set I to NNN
-      I = instruction & 0x0FFF;
-      break;
-    }
+  case 0x7000:
+  {
+    // 7XNN: Add NN to VX
+    registers[(instruction & 0x0F00) >> 8] += instruction & 0x00FF;
+    break;
+  }
 
-    case 0xD000: {
-      // DXYN: Draw sprite of N height from memory location at address I at X, Y
+  case 0xA000:
+  {
+    // ANNN: Set I to NNN
+    I = instruction & 0x0FFF;
+    break;
+  }
 
-      // Get X and Y coords (if they overflow, they should wrap)
-      int x = registers[(instruction & 0x0F00) >> 8] % SCREEN_WIDTH;
-      int y = registers[(instruction & 0x00F0) >> 4] % SCREEN_HEIGHT;
+  case 0xD000:
+  {
+    // DXYN: Draw sprite of N height from memory location at address I at X, Y
 
-      int spriteHeight = instruction & 0x000F;
+    // Get X and Y coords (if they overflow, they should wrap)
+    int x = registers[(instruction & 0x0F00) >> 8] % SCREEN_WIDTH;
+    int y = registers[(instruction & 0x00F0) >> 4] % SCREEN_HEIGHT;
 
-      // For each sprite row
-      for (int n = 0; n < spriteHeight; n++)
+    int sprite_height = instruction & 0x000F;
+
+    // Reset collision flag
+    registers[0xF] = 0;
+
+    // For each sprite row
+    for (int n = 0; n < sprite_height; n++)
+    {
+      uint8_t sprite_row = ram[I + n];
+      // That's something like 11110000
+
+      for (int p = 0; p < 8; p++)
       {
-        uint8_t spriteRow = ram[I + n];
-        // That's something like 11110000
+        // For each bit in the row, we get a single "pixel" (l to r)
 
-        for (int p = 0; p < 8; p++)
+        // Sliding mask to get one bit ("pixel") at a time
+        uint8_t mask = 0b10000000 >> p;
+        /*
+        p: 0
+        spriteRow: 11110000
+        mask:      10000000
+
+        pixelToDraw: 10000000 >> (7-p) --> 00000001
+        */
+        bool pixel_to_draw = (sprite_row & mask) >> (7 - p);
+        if (pixel_to_draw)
         {
-          // For each bit in the row, we get a single "pixel" (l to r)
-
-          // Sliding mask to get one bit ("pixel") at a time
-          uint8_t mask = 0b10000000 >> p;
           /*
-          p: 0
-          spriteRow: 11110000
-          mask:      10000000
-
-          pixelToDraw: 10000000 >> (7-p) --> 00000001
+          This pixel needs to be drawn on screen.
+          We flip the pixel on screen.
           */
-          bool pixelToDraw = (spriteRow & mask) >> (7 - p);
-          if (pixelToDraw) {
-            /*
-            This pixel needs to be drawn on screen.
-            We flip the pixel on screen. And we set VF to 1 (collision)
-            TODO: Clip sprites that go off screen. (right now they would probably segfault)
-            */
-            pixels[x + n][y + p] = !pixels[x + n][y + p];
-            registers[0xF] = 1;
-          }
+          pixels[(y + n) % SCREEN_HEIGHT][(x + p) % SCREEN_WIDTH] = !pixels[(y + n) % SCREEN_HEIGHT][(x + p) % SCREEN_WIDTH];
+
+          // TODO: Set the collision register ONLY if a pixel goes from 1 -> 0
+          // registers[0xF] = 1;
         }
       }
-
-      break;
     }
 
-    default: {
-      break;
-    }
+    break;
+  }
+
+  default:
+  {
+    break;
+  }
   }
 }
 
-int processInstruction(void) {
+int process_instruction(void)
+{
   /*
   TODO: Implement processing all instructions.
   This should fetch, decode, and execute the instruction.
   */
   uint16_t instruction = 0;
-  instruction = fetchInstruction();
-  decodeAndExecuteInstruction(instruction);
+  instruction = fetch_instruction();
+  decode_execute_instruction(instruction);
 
   return 1;
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
+  for (int i = 0; i < argc; i++)
+  {
+    printf("argv%d: %s\n", i, argv[i]);
+  }
 
-  if (argc < 2) {
-    printf("Usage: chip8 <rom_file>\n");
-    return EXIT_FAILURE;
+  if (argc < 2)
+  {
+    printf("Usage: chip8 <path_to_rom_file>\n");
+    return 1;
   }
 
   init_ram();
+  load_rom_to_ram(argv[1]);
+
   InitWindow(SCREEN_WIDTH * SCREEN_MULTIPLIER,
              SCREEN_HEIGHT * SCREEN_MULTIPLIER, "CHIP-8");
 
   SetTargetFPS(60);
 
-  float timerAcc = 0;
-  float cpuAcc = 0;
-  float currentFrameTime = 0;
+  float timer_acc = 0;
+  float cpu_acc = 0;
+  float current_frame_time = 0;
 
-  pixels[3][3] = true;
+  // pixels[3][3] = true;
 
-  while (!WindowShouldClose()) {
+  dump_ram();
+
+  while (!WindowShouldClose())
+  {
     BeginDrawing();
-    currentFrameTime = GetFrameTime();
+    current_frame_time = GetFrameTime();
     // DrawText(argv[1], 0, 0, 12, RAYWHITE);
 
     // Decrease timers once every 16ms
-    timerAcc += currentFrameTime;
+    timer_acc += current_frame_time;
 
-    while (timerAcc >= (1.0f / 60.0f)) {
-      timerAcc -= (1.0f / 60.0f);
-      decreaseTimers();
+    while (timer_acc >= (1.0f / 60.0f))
+    {
+      timer_acc -= (1.0f / 60.0f);
+      decrease_timers();
     }
 
     // Process instructions at CPU_HZ
-    cpuAcc += currentFrameTime;
+    cpu_acc += current_frame_time;
 
-    while (cpuAcc >= (1.0f / CPU_HZ)) {
-      cpuAcc -= (1.0f / CPU_HZ);
-      // processInstruction();
+    while (cpu_acc >= (1.0f / CPU_HZ))
+    {
+      cpu_acc -= (1.0f / CPU_HZ);
+      process_instruction();
     }
 
     /*
@@ -331,11 +413,11 @@ int main(int argc, char *argv[]) {
     DrawText(strTimeElapsed, 0, 0, 16, RAYWHITE);
     */
     ClearBackground(BLACK);
-    drawScreen();
+    draw_screen();
 
     EndDrawing();
   }
 
   CloseWindow();
-  return EXIT_SUCCESS;
+  return 0;
 }
