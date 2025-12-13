@@ -252,6 +252,42 @@ void decode_execute_instruction(uint16_t instruction) {
     pc = (instruction & 0x0FFF);
   }
 
+  case 0x3000: {
+    // 3XNN - Skip one instruction if value in VX == NN
+    int vx_value = registers[(instruction & 0x0F00) >> 8];
+    int nn = (instruction & 0x00FF);
+
+    if (vx_value == nn) {
+      pc += 2;
+    }
+
+    break;
+  }
+
+  case 0x4000: {
+    // 4XNN - Skip one instruction if value in VX != NN
+    int vx_value = registers[(instruction & 0x0F00) >> 8];
+    int nn = (instruction & 0x00FF);
+
+    if (vx_value != nn) {
+      pc += 2;
+    }
+
+    break;
+  }
+
+  case 0x5000: {
+    // 5XY0 - Skip one instruction if the value in VX == value in Vy
+    int vx_value = registers[(instruction & 0x0F00) >> 8];
+    int vy_value = registers[(instruction & 0x00F0) >> 4];
+
+    if (vx_value == vy_value) {
+      pc += 2;
+    }
+
+    break;
+  }
+
   case 0x6000: {
     // Assuming 6XNN: Set register VX to NN
     registers[(instruction & 0x0F00) >> 8] = instruction & 0x00FF;
@@ -261,6 +297,18 @@ void decode_execute_instruction(uint16_t instruction) {
   case 0x7000: {
     // 7XNN: Add NN to VX
     registers[(instruction & 0x0F00) >> 8] += instruction & 0x00FF;
+    break;
+  }
+
+  case 0x9000: {
+    // 9XY0 - Skip one instruction if value in VX != value in VY
+    int vx_value = registers[(instruction & 0x0F00) >> 8];
+    int vy_value = registers[(instruction & 0x00F0) >> 4];
+
+    if (vx_value != vy_value) {
+      pc += 2;
+    }
+
     break;
   }
 
@@ -325,7 +373,6 @@ void decode_execute_instruction(uint16_t instruction) {
 
 int process_instruction(void) {
   /*
-  TODO: Implement processing all instructions.
   This should fetch, decode, and execute the instruction.
   */
   uint16_t instruction = 0;
