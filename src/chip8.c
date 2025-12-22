@@ -431,7 +431,52 @@ void decode_execute_instruction(uint16_t instruction)
     case 0x0006:
     {
       // SHR Vx {, Vy}
-      // TODO: Implement
+      /*
+      Shift right. In case of odd numbers (last bit = 1), we set VF = 1
+
+      Practically:
+      If least-significant bit of Vx is 1, VF = 1. Otherwise, VF = 0.
+      Then, shift Vx 1 to the right (floor divide by 2)
+      */
+      // WARNING: Different interpreters do this differently. Check docs.
+      if ((registers[x] & 0b00000001) == 0b000000001) {
+        registers[0xF] = 1;
+      } else {
+        registers[0xF] = 0;
+      }
+      registers[x] = (registers[x] >> 1);
+      break;
+    }
+
+    case 0x0007: {
+      // SUBN Vx, Vy
+      if (registers[y] > registers[x])
+      {
+        registers[0xF] = 1;
+      }
+      else
+      {
+        registers[0xF] = 0;
+      }
+
+      registers[x] = registers[y] - registers[x];
+      break;
+    }
+
+    case 0x000E:
+    {
+      // SHL Vx {, Vy}
+      /*
+      Shift left. If left-most bit is 1, set VF = 1, otherwise VF = 0.
+      */
+      // WARNING: Different interpreters do this differently. Check docs.
+      if ((registers[x] & 0b10000000) == 0b10000000) {
+        registers[0xF] = 1;
+      } else {
+        registers[0xF] = 0;
+      }
+      registers[x] = (registers[x] << 1);
+      break;
     }
     }
     break;
@@ -439,7 +484,8 @@ void decode_execute_instruction(uint16_t instruction)
 
   case 0x9000:
   {
-    // 9XY0 - Skip one instruction if value in VX != value in VY
+    // 9XY0: SNE Vx, Vy
+    // Skip one instruction if value in VX != value in VY
     int vx_value = registers[(instruction & 0x0F00) >> 8];
     int vy_value = registers[(instruction & 0x00F0) >> 4];
 
@@ -453,7 +499,8 @@ void decode_execute_instruction(uint16_t instruction)
 
   case 0xA000:
   {
-    // ANNN: Set I to NNN
+    // ANNN: LD I, addr
+    // Set I to NNN
     I = instruction & 0x0FFF;
     break;
   }
