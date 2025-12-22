@@ -505,6 +505,28 @@ void decode_execute_instruction(uint16_t instruction)
     break;
   }
 
+  case 0xB000: {
+    // Bnnn - JP V0, addr
+    // Jump to location nnn + V0
+    // WARNING: Implementations vary. Check documentation.
+    pc = (instruction & 0x0FFF) + registers[0];
+    break;
+  }
+
+  case 0xC000: {
+    // Cxkk - RND Vx, byte
+    // Set Vx = random byte AND kk
+    int random_byte = 256;
+
+    // I copied this from cppreference. It's probably flawed in some way.
+    while (random_byte > 255) {
+      random_byte = 1 + rand() / ((RAND_MAX + 1u) / 255);
+    }
+
+    registers[(instruction & 0x0F00) >> 8] = random_byte & (instruction & 0x00FF);
+    break;
+  }
+
   case 0xD000:
   {
     // DXYN: Draw sprite of N height from memory location at address I at X, Y
@@ -513,7 +535,7 @@ void decode_execute_instruction(uint16_t instruction)
     int x = registers[(instruction & 0x0F00) >> 8] % SCREEN_WIDTH;
     int y = registers[(instruction & 0x00F0) >> 4] % SCREEN_HEIGHT;
 
-    int sprite_height = instruction & 0x000F;
+    int sprite_height = (instruction & 0x000F);
 
     // Reset collision flag
     registers[0xF] = 0;
@@ -540,15 +562,24 @@ void decode_execute_instruction(uint16_t instruction)
         bool pixel_to_draw = (sprite_row & mask) >> (7 - p);
         if (pixel_to_draw)
         {
+          bool pixel_on_screen = pixels[(y + n) % SCREEN_HEIGHT][(x + p) % SCREEN_WIDTH];
+
+          /*
+          If pixel on screen is 1, and we flip it to 0, set VF to 1.
+          Otherwise, set it to 0.
+          */
+          if (pixel_to_draw && pixel_on_screen) {
+            registers[0xF] = 1;
+          } else {
+            registers[0xF] = 0;
+          }
+
           /*
           This pixel needs to be drawn on screen.
           We flip the pixel on screen.
           */
-          pixels[(y + n) % SCREEN_HEIGHT][(x + p) % SCREEN_WIDTH] =
-              !pixels[(y + n) % SCREEN_HEIGHT][(x + p) % SCREEN_WIDTH];
+          pixels[(y + n) % SCREEN_HEIGHT][(x + p) % SCREEN_WIDTH] = !pixel_on_screen;
 
-          // TODO: Set the collision register ONLY if a pixel goes from 1 -> 0
-          // registers[0xF] = 1;
         }
       }
     }
