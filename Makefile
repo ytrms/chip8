@@ -1,5 +1,6 @@
 CC			:= cc
-CFLAGS	:= -I/opt/homebrew/include
+CFLAGS	:= -I/opt/homebrew/include \
+					 -Wall
 LDFLAGS	:= -L/opt/homebrew/lib
 LIBS		:= -lraylib \
 					 -framework CoreVideo \

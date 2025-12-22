@@ -221,6 +221,7 @@ void decode_execute_instruction(uint16_t instruction) {
       resume execution.      
       */
       pc = pop_from_stack();
+      break;
     }
   }
 
@@ -248,8 +249,10 @@ void decode_execute_instruction(uint16_t instruction) {
     So here, just push the current PC to the stack and then jump to the
     subroutine's address.
     */
-    push_to_stack(ram[pc]);
+    push_to_stack(pc);
     pc = (instruction & 0x0FFF);
+
+    break;
   }
 
   case 0x3000: {

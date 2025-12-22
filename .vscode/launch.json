@@ -6,7 +6,7 @@
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/chip8",
-      "args": ["roms/ibm-logo.ch8"],
+      "args": ["roms/3-corax+.ch8"],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
       "environment": [],
