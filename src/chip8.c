@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 
 #define RAM_SIZE 4096
 #define STACK_DEPTH 16
@@ -20,27 +21,20 @@
 typedef uint8_t BYTE;
 typedef uint16_t ADDRESS;
 
-// Allocating RAM
 BYTE ram[RAM_SIZE];
 
-// Creating the stack
 ADDRESS stack[STACK_DEPTH];
 // Stack pointer that points at the next free slot in the stack
 int8_t stack_pointer = 0;
 
-// Creating timers
 BYTE delay_timer = 0;
 BYTE sound_timer = 0;
 
-// Initialize program counter and index register
-ADDRESS pc =
-    ROM_START_ADDRESS; // Assuming that the ROM starts at this RAM addre
+ADDRESS pc = ROM_START_ADDRESS;
 ADDRESS I = 0;
 
-// Initializing registers
 BYTE registers[16]; // 0-F
 
-// Creating the "pixel" arrays
 bool pixels[SCREEN_HEIGHT][SCREEN_WIDTH];
 
 int push_to_stack(ADDRESS address)
@@ -71,6 +65,10 @@ ADDRESS pop_from_stack()
   return address;
 }
 
+/*
+Takes the file provided as argument and loads it into ram starting at
+ROM_START_ADDRESS.
+*/
 int load_rom_to_ram(char *filename)
 {
   FILE *rom = fopen(filename, "rb");
@@ -232,7 +230,7 @@ void paint_pixel_at_virtual_location(int x, int y, Color color, int border_width
 /*
 Returns the instruction in RAM at the current PC. Then increases the PC by 2, so that it points to the next instruction.
 */
-uint16_t fetch_instruction(void)
+uint16_t fetch_instruction_and_increment_pc(void)
 {
   // Instructions are 16 bit
   uint16_t instruction_high = ram[pc];
@@ -240,8 +238,6 @@ uint16_t fetch_instruction(void)
 
   uint16_t instruction = (instruction_high << 8) | instruction_low;
 
-  // SIDE EFFECT: We also increase the PC by 2 to point it at the next
-  // instruction.
   pc += 0x002;
   return instruction;
 }
@@ -726,13 +722,15 @@ void execute_instruction(uint16_t instruction)
     break;
   }
 
-  case 0xE000: {
+  case 0xE000:
+  {
     switch (instruction & 0x00FF)
     {
-    case 0x009E: {
+    case 0x009E:
+    {
       /*
       Ex9E - SKP Vx
-      Skip next instruction if key with the value of Vx is pressed. 
+      Skip next instruction if key with the value of Vx is pressed.
       */
 
       /*
@@ -743,7 +741,8 @@ void execute_instruction(uint16_t instruction)
       break;
     }
 
-    case 0x00A1: {
+    case 0x00A1:
+    {
       /*
       ExA1 - SKNP Vx
       Skip next instruction if key with the value of Vx is not pressed.
@@ -824,7 +823,8 @@ void execute_instruction(uint16_t instruction)
       break;
     }
 
-    case 0x0029: {
+    case 0x0029:
+    {
       /*
       Fx29 - LD F, Vx
       Set I = location of sprite for digit Vx.
@@ -838,7 +838,8 @@ void execute_instruction(uint16_t instruction)
       break;
     }
 
-    case 0x0033: {
+    case 0x0033:
+    {
       /*
       Fx33 - LD B, Vx
       Store BCD representation of Vx in memory locations I, I+1, and I+2.
@@ -847,22 +848,42 @@ void execute_instruction(uint16_t instruction)
       /*
       The interpreter takes the decimal value of Vx, and places the hundreds digit in memory at location in I, the tens digit at location I+1, and the ones digit at location I+2.
       */
-     
+
       // TODO: Implement
+      /*
+      x is an eight-bit number, meaning from 0 to 255.
+      taking the hundredths digit:
+      - modulo by 100
+      */
+      int num = registers[(instruction & 0x0F00) >> 8];
+      int hundredths_digit = floor(num / 100);
+      int tens_digit = floor((num % 100) / 10);
+      int singles_digit = num % 10;
+
+      ram[I] = hundredths_digit;
+      ram[I + 1] = tens_digit;
+      ram[I + 2] = singles_digit;
+
       break;
     }
 
-    case 0x0055: {
+    case 0x0055:
+    {
       /*
       Fx55 - LD [I], Vx
       Store registers V0 through Vx in memory starting at location I.
       */
 
-      // TODO: Implement
+      for (int j = 0; j <= ((instruction & 0x0F00) >> 8); j++)
+      {
+        ram[I + j] = registers[j];
+      }
+
       break;
     }
 
-    case 0x0065: {
+    case 0x0065:
+    {
       /*
       Fx65 - LD Vx, [I]
       Read registers V0 through Vx from memory starting at location I.
@@ -872,7 +893,12 @@ void execute_instruction(uint16_t instruction)
       The interpreter reads values from memory starting at location I into registers V0 through Vx.
       */
 
-      // TODO: Implement
+      for (int j = 0; j <= ((instruction & 0x0F00) >> 8); j++)
+      {
+        registers[j] = ram[I + j];
+      }
+
+      break;
     }
 
     default:
@@ -893,7 +919,7 @@ int process_instruction(void)
   This should fetch, decode, and execute the instruction.
   */
   uint16_t instruction = 0;
-  instruction = fetch_instruction();
+  instruction = fetch_instruction_and_increment_pc();
   execute_instruction(instruction);
 
   return 1;
@@ -901,51 +927,45 @@ int process_instruction(void)
 
 int main(int argc, char *argv[])
 {
-  for (int i = 0; i < argc; i++)
+  if (argc != 2)
   {
-    printf("argv%d: %s\n", i, argv[i]);
-  }
-
-  if (argc < 2)
-  {
+    // User specified the wrong number of arguments
     printf("Usage: chip8 <path_to_rom_file>\n");
     return 1;
   }
 
+  // MEMORY INIT
   init_ram();
   load_rom_to_ram(argv[1]);
+  dump_ram();
 
+  // VIDEO INIT
   InitWindow(SCREEN_WIDTH * SCREEN_MULTIPLIER,
              SCREEN_HEIGHT * SCREEN_MULTIPLIER, "CHIP-8");
 
-  // AUDIO
-  InitAudioDevice();
+  SetTargetFPS(60);
 
+  // AUDIO INIT
+  InitAudioDevice();
   Wave tone_wave = LoadWave("assets/tone.wav");
   Sound the_tone = LoadSoundFromWave(tone_wave);
-
-  SetTargetFPS(60);
 
   float timer_acc = 0;
   float cpu_acc = 0;
   float current_frame_time = 0;
 
-  // pixels[3][3] = true;
-
-  dump_ram();
-
   while (!WindowShouldClose())
   {
     BeginDrawing();
     current_frame_time = GetFrameTime();
-    // DrawText(argv[1], 0, 0, 12, RAYWHITE);
 
+    // SOUND
     if (sound_timer > 0)
     {
       play_tone_if_not_already_playing(the_tone);
     }
 
-    // Decrease timers once every 16ms
+    // TIMER MGMT
     timer_acc += current_frame_time;
 
     while (timer_acc >= (1.0f / 60.0f))
