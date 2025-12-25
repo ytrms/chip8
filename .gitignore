@@ -3,4 +3,4 @@ chip8-test-suite/
 roms/
 ram_dump.bin
 chip8.dSYM
-chip8
+/chip8

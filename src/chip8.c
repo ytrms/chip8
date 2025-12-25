@@ -14,6 +14,7 @@
 #define SCREEN_MULTIPLIER 10
 
 #define ROM_START_ADDRESS 0x200
+#define FONT_START_ADDRESS 0x050
 
 // Defining a byte as being 8 bit
 typedef uint8_t BYTE;
@@ -61,9 +62,7 @@ ADDRESS pop_from_stack()
   if (stack_pointer == 0)
   {
     perror("Stack underflow.");
-    // TODO: It doesn't make sense to return exit_failure here. Find something
-    // else. (e.g., they are both fine and valid addresses, both returns)
-    return 1;
+    exit(EXIT_FAILURE);
   }
 
   stack_pointer -= 1;
@@ -82,14 +81,12 @@ int load_rom_to_ram(char *filename)
     return 1;
   }
 
-  // int rom_length = GetFileLength(filename);
-
   int file_byte;
   int i = 0;
   // Reading the file one byte at a time into byte
   while ((file_byte = fgetc(rom)) != EOF)
   {
-    // TODO: Risky - if the ROM is too large, you'll go oob. do ram size - rom
+    // TODO: Unsafe. If the ROM is too large, you'll go oob. do ram size - rom
     // start addr to check
     ram[pc + i] = file_byte;
     i++;
@@ -99,6 +96,11 @@ int load_rom_to_ram(char *filename)
   return 0;
 }
 
+/*
+Dumps the contents of the Chip-8 RAM to a file in the root folder.
+
+IMPROVEMENT: Make the filename an argument.
+*/
 int dump_ram(void)
 {
   FILE *ram_dump = fopen("ram_dump.bin", "w");
@@ -109,7 +111,7 @@ int dump_ram(void)
   }
 
   size_t num_bytes_dumped = fwrite(ram, sizeof ram[0], RAM_SIZE, ram_dump);
-  printf("Dumped %zu bytes out of %d requested.", num_bytes_dumped, RAM_SIZE);
+  printf("Dumped %zu bytes out of %d requested.\n", num_bytes_dumped, RAM_SIZE);
   fclose(ram_dump);
 
   if (num_bytes_dumped == RAM_SIZE)
@@ -122,6 +124,13 @@ int dump_ram(void)
   }
 }
 
+/*
+Zeroes out the Chip-8's RAM.
+
+IMPROVEMENT: Make the ram array an argument. But remember how variables work in C, and how functions only alter a local version of what you pass in. So you may need some pointer stuff.
+
+IMPROVEMENT: Don't rely on the global RAM_SIZE define, measure instead the size of the RAM from within the function.
+*/
 int reset_ram(void)
 {
   // Blank out memory
@@ -133,10 +142,15 @@ int reset_ram(void)
   return 0;
 }
 
+/*
+Places font information in RAM, starting at address 0x050.
+
+IMPROVEMENT: Pass the RAM in as argument. Again remember how C passes values.
+
+IMPROVEMENT: Pass the start address in as argument.
+*/
 void burn_font_to_ram(void)
 {
-  int font_area_start_address = 0x050;
-
   int font[FONT_SIZE] = {
       0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
       0x20, 0x60, 0x20, 0x20, 0x70, // 1
@@ -158,20 +172,36 @@ void burn_font_to_ram(void)
 
   for (int i = 0; i < FONT_SIZE; i++)
   {
-    ram[font_area_start_address + i] = font[i];
+    ram[FONT_START_ADDRESS + i] = font[i];
   }
 }
 
+/*
+Initializes the Chip-8 RAM, making it ready for execution.
+
+TODO: Many things to do here to init. Zero the timers, reset PC and I, registers, stack_pointer, pixels. basically make it so that you can reset it while the emu is running.
+*/
 void init_ram(void)
 {
   // 0x000 - 0x1FF are reserved by the interpreter. 0x200+ are for the ROM.
   reset_ram();
   burn_font_to_ram();
-  // TODO: Many things to do here to init. Zero the timers, reset PC and I,
-  // registers, stack_pointer, pixels. basically make it so that you can run it
-  // while the emu is running.
 }
 
+/*
+Plays the given tone, unless the tone is already playing.
+*/
+void play_tone_if_not_already_playing(Sound tone)
+{
+  if (!IsSoundPlaying(tone))
+  {
+    PlaySound(tone);
+  }
+}
+
+/*
+Decreases by 1 the sound and delay timers.
+*/
 void decrease_timers(void)
 {
   if (sound_timer > 0)
@@ -185,13 +215,23 @@ void decrease_timers(void)
   }
 }
 
-void paint_pixel_at_virtual_location(int x, int y)
+/*
+Draws a Raylib rectangle of size (SCREEN_MULTIPLIER - 1) * (SCREEN_MULTIPLIER - 1) at the given x, y location of the Chip-8's display. x, y must be within the bounds of the Chip-8 display size.
+
+IMPROVEMENT: Return an error upon receiving a non-valid x or y value.
+
+IMPROVEMENT: Make the "black" line around the rectangles configurable as argument.
+*/
+void paint_pixel_at_virtual_location(int x, int y, Color color, int border_width)
 {
   DrawRectangle(x * SCREEN_MULTIPLIER, y * SCREEN_MULTIPLIER,
-                SCREEN_MULTIPLIER - 1, // -1 to get a "grid"
-                SCREEN_MULTIPLIER - 1, RAYWHITE);
+                SCREEN_MULTIPLIER - border_width, // -1 to get a "grid"
+                SCREEN_MULTIPLIER - border_width, color);
 }
 
+/*
+Returns the instruction in RAM at the current PC. Then increases the PC by 2, so that it points to the next instruction.
+*/
 uint16_t fetch_instruction(void)
 {
   // Instructions are 16 bit
@@ -206,6 +246,9 @@ uint16_t fetch_instruction(void)
   return instruction;
 }
 
+/*
+Sets all virtual pixels to 0.
+*/
 void clear_background(void)
 {
   for (int i = 0; i < SCREEN_HEIGHT; i++)
@@ -217,6 +260,13 @@ void clear_background(void)
   }
 }
 
+/*
+Draws Raylib rectangles on screen based on the values of the virtual pixels.
+
+Draws white rectangles if true, black if false.
+
+IMPROVEMENT: Draw nothing if false.
+*/
 void draw_screen(void)
 {
   // Draws rectangles on screen based on the "pixels" matrix
@@ -226,45 +276,59 @@ void draw_screen(void)
     {
       if (pixels[i][n])
       {
-        DrawRectangle(n * SCREEN_MULTIPLIER, i * SCREEN_MULTIPLIER,
-                      SCREEN_MULTIPLIER - 1, SCREEN_MULTIPLIER - 1, RAYWHITE);
+        paint_pixel_at_virtual_location(n, i, RAYWHITE, 0);
       }
       else
       {
-        DrawRectangle(n * SCREEN_MULTIPLIER, i * SCREEN_MULTIPLIER,
-                      SCREEN_MULTIPLIER - 1, SCREEN_MULTIPLIER - 1, BLACK);
+        paint_pixel_at_virtual_location(n, i, BLACK, 0);
       }
     }
   }
 }
 
-void decode_execute_instruction(uint16_t instruction)
+/*
+Executes the given instruction.
+
+TODO: Add support for all instructions.
+*/
+void execute_instruction(uint16_t instruction)
 {
   switch (instruction & 0xF000)
   {
   case 0x0000:
   {
-    // 00E0 - CLS
+    /*
+    00E0 - CLS
+    Clear the display.
+    */
     if (instruction == 0x00E0)
     {
       clear_background();
       break;
     }
+    /*
+    00EE - RET
+    Return from a subroutine.
+    */
     else if (instruction == 0x00EE)
     {
       /*
-      We have received the command to exit the subroutine we're in.
-      Let's pop the address from the stack and set the PC to it, so we can
+      Pop the address from the stack and set the PC to it, so we can
       resume execution.
       */
       pc = pop_from_stack();
       break;
     }
+
+    break;
   }
 
   case 0x1000:
   {
-    // JMP (set pc to nnn)
+    /*
+    nnn - JP addr
+    Jump to location nnn.
+    */
     pc = (instruction & 0x0FFF);
     break;
   }
@@ -272,8 +336,11 @@ void decode_execute_instruction(uint16_t instruction)
   case 0x2000:
   {
     /*
-    The PC points at the instruction to execute.
+    2nnn - CALL addr
+    Call subroutine at nnn.
+    */
 
+    /*
     In a normal jump, we move the PC to the new instruction, and that's it.
 
     As this is a jump to subroutine though, this means that at some point we
@@ -296,7 +363,10 @@ void decode_execute_instruction(uint16_t instruction)
 
   case 0x3000:
   {
-    // 3XNN - Skip one instruction if value in VX == NN
+    /*
+    3xkk - SE Vx, byte
+    Skip next instruction if Vx = kk
+    */
     int vx_value = registers[(instruction & 0x0F00) >> 8];
     int nn = (instruction & 0x00FF);
 
@@ -310,7 +380,10 @@ void decode_execute_instruction(uint16_t instruction)
 
   case 0x4000:
   {
-    // 4XNN - Skip one instruction if value in VX != NN
+    /*
+    4xkk - SNE Vx, byte
+    Skip next instruction if Vx != kk
+    */
     int vx_value = registers[(instruction & 0x0F00) >> 8];
     int nn = (instruction & 0x00FF);
 
@@ -324,7 +397,10 @@ void decode_execute_instruction(uint16_t instruction)
 
   case 0x5000:
   {
-    // 5XY0 - Skip one instruction if the value in VX == value in Vy
+    /*
+    5xy0 - SE Vx, Vy
+    Skip next instruction if Vx = Vy
+    */
     int vx_value = registers[(instruction & 0x0F00) >> 8];
     int vy_value = registers[(instruction & 0x00F0) >> 4];
 
@@ -338,24 +414,27 @@ void decode_execute_instruction(uint16_t instruction)
 
   case 0x6000:
   {
-    // Assuming 6XNN: Set register VX to NN
+    /*
+    6xkk - LD Vx, byte
+    Set Vx = kk
+    */
     registers[(instruction & 0x0F00) >> 8] = instruction & 0x00FF;
     break;
   }
 
   case 0x7000:
   {
-    // 7XNN: Add NN to VX
+    /*
+    7xkk - ADD Vx, byte
+    Adds the value kk to the value of the register Vx, then stores the result in
+    Vx.
+    */
     registers[(instruction & 0x0F00) >> 8] += instruction & 0x00FF;
     break;
   }
 
   case 0x8000:
   {
-    /*
-    There's a ton of opcodes starting with 8 - they are differentiated by
-    their last hex digit. So we get that to have a nested switch.
-    */
     int opflag = (instruction & 0x000F);
     int x = (instruction & 0x0F00) >> 8;
     int y = (instruction & 0x00F0) >> 4;
@@ -364,28 +443,40 @@ void decode_execute_instruction(uint16_t instruction)
     {
     case 0x0000:
     {
-      // 8XY0: VX is set to the value of VY
+      /*
+      8XY0 - LD Vx, Vy
+      Set Vx = Vy
+      */
       registers[x] = registers[y];
       break;
     }
 
     case 0x0001:
     {
-      // 8XY1: VX is set to the bitwise OR or VX and VY
+      /*
+      8xy1 - OR Vx, Vy
+      Set Vx = Vx OR Vy
+      */
       registers[x] = (registers[x] | registers[y]);
       break;
     }
 
     case 0x0002:
     {
-      // 8XY2: VX is set to the bitwise AND or VX and VY
+      /*
+      8xy2 - AND Vx, Vy
+      Set Vx = Vx AND Vy
+      */
       registers[x] = (registers[x] & registers[y]);
       break;
     }
 
     case 0x0003:
     {
-      // 8XY3: VX is set to the bitwise XOR or VX and VY
+      /*
+      8xy3 - XOR Vx, Vy
+      Set Vx = Vx XOR Vy
+      */
       registers[x] = (registers[x] ^ registers[y]);
       break;
     }
@@ -393,7 +484,12 @@ void decode_execute_instruction(uint16_t instruction)
     case 0x0004:
     {
       /*
-      8XY4: The value of VX is set to the value of VX + value of XY
+      8xy4 - ADD Vx, Vy
+      Set Vx = Vx + Vy, set VF = carry.
+      */
+
+      /*
+      The value of VX is set to the value of VX + value of XY
       If the result is larger than 255 (8 bits), only the lowest 8 bits are
       stored and VF is set to 1. Otherwise, VF is set to 0.
       */
@@ -414,7 +510,12 @@ void decode_execute_instruction(uint16_t instruction)
 
     case 0x0005:
     {
-      // SUB Vx, Vy. If Vx > Vy -> VF = 1, otherwise VF = 0
+      /*
+      8xy5 - SUB Vx, Vy
+      Set Vx = Vx - Vy, set VF = NOT borrow.
+      */
+
+      // If Vx > Vy -> VF = 1, otherwise VF = 0
       if (registers[x] > registers[y])
       {
         registers[0xF] = 1;
@@ -430,7 +531,11 @@ void decode_execute_instruction(uint16_t instruction)
 
     case 0x0006:
     {
-      // SHR Vx {, Vy}
+      /*
+      8xy6 - SHR Vx {, Vy}
+      Set Vx = Vx SHR 1.
+      */
+
       /*
       Shift right. In case of odd numbers (last bit = 1), we set VF = 1
 
@@ -439,17 +544,25 @@ void decode_execute_instruction(uint16_t instruction)
       Then, shift Vx 1 to the right (floor divide by 2)
       */
       // WARNING: Different interpreters do this differently. Check docs.
-      if ((registers[x] & 0b00000001) == 0b000000001) {
+      if ((registers[x] & 0b00000001) == 0b000000001)
+      {
         registers[0xF] = 1;
-      } else {
+      }
+      else
+      {
         registers[0xF] = 0;
       }
       registers[x] = (registers[x] >> 1);
       break;
     }
 
-    case 0x0007: {
-      // SUBN Vx, Vy
+    case 0x0007:
+    {
+      /*
+      8xy7 - SUBN Vx, Vy
+      Set Vx = Vy - Vx, set VF = NOT borrow.
+      */
+
       if (registers[y] > registers[x])
       {
         registers[0xF] = 1;
@@ -465,14 +578,21 @@ void decode_execute_instruction(uint16_t instruction)
 
     case 0x000E:
     {
-      // SHL Vx {, Vy}
+      /*
+      8xyE - SHL Vx {, Vy}
+      Set Vx = Vx SHL 1.
+      */
+
       /*
       Shift left. If left-most bit is 1, set VF = 1, otherwise VF = 0.
       */
       // WARNING: Different interpreters do this differently. Check docs.
-      if ((registers[x] & 0b10000000) == 0b10000000) {
+      if ((registers[x] & 0b10000000) == 0b10000000)
+      {
         registers[0xF] = 1;
-      } else {
+      }
+      else
+      {
         registers[0xF] = 0;
       }
       registers[x] = (registers[x] << 1);
@@ -484,8 +604,10 @@ void decode_execute_instruction(uint16_t instruction)
 
   case 0x9000:
   {
-    // 9XY0: SNE Vx, Vy
-    // Skip one instruction if value in VX != value in VY
+    /*
+    9xy0 - SNE Vx, Vy
+    Skip next instruction if Vx != Vy.
+    */
     int vx_value = registers[(instruction & 0x0F00) >> 8];
     int vy_value = registers[(instruction & 0x00F0) >> 4];
 
@@ -499,27 +621,37 @@ void decode_execute_instruction(uint16_t instruction)
 
   case 0xA000:
   {
-    // ANNN: LD I, addr
-    // Set I to NNN
+    /*
+    Annn - LD I, addr
+    Set I = nnn.
+    */
     I = instruction & 0x0FFF;
     break;
   }
 
-  case 0xB000: {
-    // Bnnn - JP V0, addr
-    // Jump to location nnn + V0
+  case 0xB000:
+  {
+    /*
+    Bnnn - JP V0, addr
+    Jump to location nnn + V0.
+    */
+
     // WARNING: Implementations vary. Check documentation.
     pc = (instruction & 0x0FFF) + registers[0];
     break;
   }
 
-  case 0xC000: {
-    // Cxkk - RND Vx, byte
-    // Set Vx = random byte AND kk
+  case 0xC000:
+  {
+    /*
+    Cxkk - RND Vx, byte
+    Set Vx = random byte AND kk.
+    */
     int random_byte = 256;
 
-    // I copied this from cppreference. It's probably flawed in some way.
-    while (random_byte > 255) {
+    // I got this from cppreference. It's probably flawed in some way.
+    while (random_byte > 255)
+    {
       random_byte = 1 + rand() / ((RAND_MAX + 1u) / 255);
     }
 
@@ -529,7 +661,12 @@ void decode_execute_instruction(uint16_t instruction)
 
   case 0xD000:
   {
-    // DXYN: Draw sprite of N height from memory location at address I at X, Y
+    /*
+    Dxyn - DRW Vx, Vy, nibble
+    Display n-byte sprite starting at memory location I at (Vx, Vy), set VF = collision.
+    */
+
+    // Draw sprite of N height from memory location at address I at X, Y
 
     // Get X and Y coords (if they overflow, they should wrap)
     int x = registers[(instruction & 0x0F00) >> 8] % SCREEN_WIDTH;
@@ -568,9 +705,12 @@ void decode_execute_instruction(uint16_t instruction)
           If pixel on screen is 1, and we flip it to 0, set VF to 1.
           Otherwise, set it to 0.
           */
-          if (pixel_to_draw && pixel_on_screen) {
+          if (pixel_to_draw && pixel_on_screen)
+          {
             registers[0xF] = 1;
-          } else {
+          }
+          else
+          {
             registers[0xF] = 0;
           }
 
@@ -579,12 +719,165 @@ void decode_execute_instruction(uint16_t instruction)
           We flip the pixel on screen.
           */
           pixels[(y + n) % SCREEN_HEIGHT][(x + p) % SCREEN_WIDTH] = !pixel_on_screen;
-
         }
       }
     }
 
     break;
+  }
+
+  case 0xE000: {
+    switch (instruction & 0x00FF)
+    {
+    case 0x009E: {
+      /*
+      Ex9E - SKP Vx
+      Skip next instruction if key with the value of Vx is pressed. 
+      */
+
+      /*
+      Checks the keyboard, and if the key corresponding to the value of Vx is currently in the down position, PC is increased by 2.
+      */
+
+      // TODO: Implement
+      break;
+    }
+
+    case 0x00A1: {
+      /*
+      ExA1 - SKNP Vx
+      Skip next instruction if key with the value of Vx is not pressed.
+      */
+
+      /*
+      Checks the keyboard, and if the key corresponding to the value of Vx is currently in the up position, PC is increased by 2.
+      */
+
+      // TODO: Implement
+
+      break;
+    }
+
+    default:
+      break;
+    }
+  }
+
+  case 0xF000:
+  {
+    switch (instruction & 0x00FF)
+    {
+    case 0x0007:
+    {
+      /*
+      Fx07 - LD Vx, DT
+      Set Vx = delay timer value.
+
+      The value of DT is placed into Vx.
+      */
+      registers[(instruction & 0x0F00) >> 8] = delay_timer;
+      break;
+    }
+
+    case 0x000A:
+    {
+      /*
+      Fx0A - LD Vx, K
+      Wait for a key press, store the value of the key in Vx.
+
+      All execution stops until a key is pressed, then the value of that key is stored in Vx.
+      */
+      // TODO: Implement
+      break;
+    }
+
+    case 0x0015:
+    {
+      /*
+      Fx15: LD DT, Vx
+      Set delay timer = Vx.
+      */
+
+      delay_timer = registers[(instruction & 0x0F00) >> 8];
+
+      break;
+    }
+
+    case 0x0018:
+    {
+      /*
+      Fx18 - LD ST, Vx
+      Set sound timer = Vx.
+      */
+
+      sound_timer = registers[(instruction & 0x0F00) >> 8];
+      break;
+    }
+
+    case 0x001E:
+    {
+      /*
+      Fx1E - ADD I, Vx
+      Set I = I + Vx.
+      */
+      I = I + registers[(instruction & 0x0F00) >> 8];
+      break;
+    }
+
+    case 0x0029: {
+      /*
+      Fx29 - LD F, Vx
+      Set I = location of sprite for digit Vx.
+      */
+
+      // A single char takes this many bytes (font)
+      int character_size_on_disk = 5;
+
+      I = FONT_START_ADDRESS + (character_size_on_disk * (instruction & 0x0F00) >> 8);
+
+      break;
+    }
+
+    case 0x0033: {
+      /*
+      Fx33 - LD B, Vx
+      Store BCD representation of Vx in memory locations I, I+1, and I+2.
+      */
+
+      /*
+      The interpreter takes the decimal value of Vx, and places the hundreds digit in memory at location in I, the tens digit at location I+1, and the ones digit at location I+2.
+      */
+     
+      // TODO: Implement
+      break;
+    }
+
+    case 0x0055: {
+      /*
+      Fx55 - LD [I], Vx
+      Store registers V0 through Vx in memory starting at location I.
+      */
+
+      // TODO: Implement
+      break;
+    }
+
+    case 0x0065: {
+      /*
+      Fx65 - LD Vx, [I]
+      Read registers V0 through Vx from memory starting at location I.
+      */
+
+      /*
+      The interpreter reads values from memory starting at location I into registers V0 through Vx.
+      */
+
+      // TODO: Implement
+    }
+
+    default:
+      break;
+    }
   }
 
   default:
@@ -601,7 +894,7 @@ int process_instruction(void)
   */
   uint16_t instruction = 0;
   instruction = fetch_instruction();
-  decode_execute_instruction(instruction);
+  execute_instruction(instruction);
 
   return 1;
 }
@@ -625,6 +918,12 @@ int main(int argc, char *argv[])
   InitWindow(SCREEN_WIDTH * SCREEN_MULTIPLIER,
              SCREEN_HEIGHT * SCREEN_MULTIPLIER, "CHIP-8");
 
+  // AUDIO
+  InitAudioDevice();
+
+  Wave tone_wave = LoadWave("assets/tone.wav");
+  Sound the_tone = LoadSoundFromWave(tone_wave);
+
   SetTargetFPS(60);
 
   float timer_acc = 0;
@@ -640,6 +939,11 @@ int main(int argc, char *argv[])
     BeginDrawing();
     current_frame_time = GetFrameTime();
     // DrawText(argv[1], 0, 0, 12, RAYWHITE);
+
+    if (sound_timer > 0)
+    {
+      play_tone_if_not_already_playing(the_tone);
+    }
 
     // Decrease timers once every 16ms
     timer_acc += current_frame_time;
@@ -657,6 +961,11 @@ int main(int argc, char *argv[])
     {
       cpu_acc -= (1.0f / CPU_HZ);
       process_instruction();
+      int keyPressed = GetKeyPressed();
+      if (keyPressed != 0)
+      {
+        printf("%d\n", keyPressed);
+      }
     }
 
     /*
@@ -671,6 +980,7 @@ int main(int argc, char *argv[])
     EndDrawing();
   }
 
+  CloseAudioDevice();
   CloseWindow();
   return 0;
 }
