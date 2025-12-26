@@ -37,6 +37,19 @@ BYTE registers[16]; // 0-F
 
 bool pixels[SCREEN_HEIGHT][SCREEN_WIDTH];
 
+/*
+  The index of this array will point to the physical scancode.
+  For example, indexing int_to_ascii[0xF] will point to the scancode for V
+*/
+int int_to_ascii[16] = {
+    88,         // 0
+    49, 50, 51, // 1 2 3
+    81, 87, 69, // 4 5 6
+    65, 83, 68, // 7 8 9
+    90, 67, 52, // A B C
+    82, 70, 86  // D E F
+};
+
 int push_to_stack(ADDRESS address)
 {
   if (stack_pointer >= STACK_DEPTH)
@@ -284,10 +297,8 @@ void draw_screen(void)
 
 /*
 Executes the given instruction.
-
-TODO: Add support for all instructions.
 */
-void execute_instruction(uint16_t instruction)
+void execute_instruction(uint16_t instruction, int key_pressed)
 {
   switch (instruction & 0xF000)
   {
@@ -737,7 +748,11 @@ void execute_instruction(uint16_t instruction)
       Checks the keyboard, and if the key corresponding to the value of Vx is currently in the down position, PC is increased by 2.
       */
 
-      // TODO: Implement
+      if (key_pressed == int_to_ascii[(instruction & 0x0F00) >> 8])
+      {
+        pc += 2;
+      }
+
       break;
     }
 
@@ -752,7 +767,10 @@ void execute_instruction(uint16_t instruction)
       Checks the keyboard, and if the key corresponding to the value of Vx is currently in the up position, PC is increased by 2.
       */
 
-      // TODO: Implement
+      if (key_pressed != int_to_ascii[(instruction & 0x0F00) >> 8])
+      {
+        pc += 2;
+      }
 
       break;
     }
@@ -786,7 +804,21 @@ void execute_instruction(uint16_t instruction)
 
       All execution stops until a key is pressed, then the value of that key is stored in Vx.
       */
-      // TODO: Implement
+
+      if (key_pressed == 0)
+      {
+        pc -= 2;
+      } else {
+        // Take the key pressed. Convert it to the chip-8 keyboard. Store in vx
+        for (int j = 0; j < 17; j++)
+        {
+          if (int_to_ascii[j] == key_pressed)
+          {
+            registers[(instruction & 0x0F00) >> 8] = j;
+          }
+        }
+      }
+
       break;
     }
 
@@ -849,7 +881,6 @@ void execute_instruction(uint16_t instruction)
       The interpreter takes the decimal value of Vx, and places the hundreds digit in memory at location in I, the tens digit at location I+1, and the ones digit at location I+2.
       */
 
-      // TODO: Implement
       /*
       x is an eight-bit number, meaning from 0 to 255.
       taking the hundredths digit:
@@ -913,14 +944,14 @@ void execute_instruction(uint16_t instruction)
   }
 }
 
-int process_instruction(void)
+int process_instruction(int key_pressed)
 {
   /*
   This should fetch, decode, and execute the instruction.
   */
   uint16_t instruction = 0;
   instruction = fetch_instruction_and_increment_pc();
-  execute_instruction(instruction);
+  execute_instruction(instruction, key_pressed);
 
   return 1;
 }
@@ -979,13 +1010,14 @@ int main(int argc, char *argv[])
 
     while (cpu_acc >= (1.0f / CPU_HZ))
     {
+      // One "CPU" cycle
       cpu_acc -= (1.0f / CPU_HZ);
-      process_instruction();
-      int keyPressed = GetKeyPressed();
-      if (keyPressed != 0)
-      {
-        printf("%d\n", keyPressed);
-      }
+
+      // Process input
+      int key_pressed = GetKeyPressed();
+
+      // Process CPU instruction
+      process_instruction(key_pressed);
     }
 
     /*

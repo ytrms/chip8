@@ -4,3 +4,6 @@ roms/
 ram_dump.bin
 chip8.dSYM
 /chip8
+roms
+compile-flags.txt
+chip8Archive
