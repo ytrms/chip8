@@ -41,14 +41,14 @@ bool pixels[SCREEN_HEIGHT][SCREEN_WIDTH];
   The index of this array will point to the physical scancode.
   For example, indexing int_to_ascii[0xF] will point to the scancode for V
 */
-int int_to_ascii[16] = {
-    88,         // 0
-    49, 50, 51, // 1 2 3
-    81, 87, 69, // 4 5 6
-    65, 83, 68, // 7 8 9
-    90, 67, 52, // A B C
-    82, 70, 86  // D E F
-};
+// int int_to_ascii[16] = {
+//     88,         // 0
+//     49, 50, 51, // 1 2 3
+//     81, 87, 69, // 4 5 6
+//     65, 83, 68, // 7 8 9
+//     90, 67, 52, // A B C
+//     82, 70, 86  // D E F
+// };
 
 int push_to_stack(ADDRESS address)
 {
@@ -300,6 +300,12 @@ Executes the given instruction.
 */
 void execute_instruction(uint16_t instruction, int key_pressed)
 {
+
+  if (key_pressed != 0)
+  {
+    printf("Key pressed: %d\n", key_pressed);
+  }
+
   switch (instruction & 0xF000)
   {
   case 0x0000:
@@ -500,7 +506,7 @@ void execute_instruction(uint16_t instruction, int key_pressed)
       If the result is larger than 255 (8 bits), only the lowest 8 bits are
       stored and VF is set to 1. Otherwise, VF is set to 0.
       */
-      if (registers[x] + registers[y] > 0b1111)
+      if (registers[x] + registers[y] > 0b11111111)
       {
         // Result overflows. Only store lowest 8 bits
         registers[x] = (registers[x] + registers[y]) & 0b11111111; // I hope this is right
@@ -689,6 +695,7 @@ void execute_instruction(uint16_t instruction, int key_pressed)
     {
       uint8_t sprite_row = ram[I + n];
       // That's something like 11110000
+      registers[0xF] = 0;
 
       for (int p = 0; p < 8; p++)
       {
@@ -716,10 +723,6 @@ void execute_instruction(uint16_t instruction, int key_pressed)
           {
             registers[0xF] = 1;
           }
-          else
-          {
-            registers[0xF] = 0;
-          }
 
           /*
           This pixel needs to be drawn on screen.
@@ -735,6 +738,24 @@ void execute_instruction(uint16_t instruction, int key_pressed)
 
   case 0xE000:
   {
+    int key_pressed_in_hex = -1;
+
+    if (key_pressed != 0)
+    {
+      if (key_pressed >= 48 && key_pressed <= 57)
+      {
+        key_pressed_in_hex = key_pressed - 48;
+      }
+
+      // If key pressed is a letter
+      if (key_pressed >= 65 && key_pressed <= 70)
+      {
+        key_pressed_in_hex = key_pressed - 55;
+      }
+
+      printf("Key pressed in dec: %d\n", key_pressed_in_hex);
+    }
+
     switch (instruction & 0x00FF)
     {
     case 0x009E:
@@ -748,9 +769,12 @@ void execute_instruction(uint16_t instruction, int key_pressed)
       Checks the keyboard, and if the key corresponding to the value of Vx is currently in the down position, PC is increased by 2.
       */
 
-      if (key_pressed == int_to_ascii[(instruction & 0x0F00) >> 8])
+      if (key_pressed_in_hex != -1)
       {
-        pc += 2;
+        if (key_pressed_in_hex == registers[((instruction & 0x0F00) >> 8)])
+        {
+          pc += 2;
+        }
       }
 
       break;
@@ -767,9 +791,12 @@ void execute_instruction(uint16_t instruction, int key_pressed)
       Checks the keyboard, and if the key corresponding to the value of Vx is currently in the up position, PC is increased by 2.
       */
 
-      if (key_pressed != int_to_ascii[(instruction & 0x0F00) >> 8])
+      if (key_pressed_in_hex != -1)
       {
-        pc += 2;
+        if (key_pressed_in_hex != registers[((instruction & 0x0F00) >> 8)])
+        {
+          pc += 2;
+        }
       }
 
       break;
@@ -778,6 +805,8 @@ void execute_instruction(uint16_t instruction, int key_pressed)
     default:
       break;
     }
+
+    break;
   }
 
   case 0xF000:
@@ -808,14 +837,20 @@ void execute_instruction(uint16_t instruction, int key_pressed)
       if (key_pressed == 0)
       {
         pc -= 2;
-      } else {
+      }
+      else
+      {
         // Take the key pressed. Convert it to the chip-8 keyboard. Store in vx
-        for (int j = 0; j < 17; j++)
+        // for (int j = 0; j < 17; j++)
+        // {
+        //   if (int_to_ascii[j] == key_pressed)
+        //   {
+        //     registers[(instruction & 0x0F00) >> 8] = j;
+        //   }
+        // }
+        if ((key_pressed >= 48 && key_pressed <= 57) || (key_pressed >= 65 && key_pressed <= 70))
         {
-          if (int_to_ascii[j] == key_pressed)
-          {
-            registers[(instruction & 0x0F00) >> 8] = j;
-          }
+          registers[(instruction & 0x0F00) >> 8] = key_pressed;
         }
       }
 
@@ -935,6 +970,8 @@ void execute_instruction(uint16_t instruction, int key_pressed)
     default:
       break;
     }
+
+    break;
   }
 
   default:
@@ -1015,6 +1052,10 @@ int main(int argc, char *argv[])
 
       // Process input
       int key_pressed = GetKeyPressed();
+      // if (key_pressed != 0)
+      // {
+      //   printf("Key pressed: %d\n", key_pressed);
+      // }
 
       // Process CPU instruction
       process_instruction(key_pressed);
